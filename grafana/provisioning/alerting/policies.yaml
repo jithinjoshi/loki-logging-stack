@@ -1,0 +1,10 @@
+# Which alerts go to which contact point, and how often.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: email-team
+    group_by: ['alertname', 'job', 'error_message']   # one email per distinct error
+    group_wait: 10s        # new error: email after 10s
+    group_interval: 5m     # same error: no new email within 5 minutes
+    repeat_interval: 5m    # same error still happening: one reminder every 5 minutes

@@ -1,0 +1,2 @@
+# Keep Linux line endings: these files run on a Linux VM (shell, nginx, YAML)
+* text=auto eol=lf

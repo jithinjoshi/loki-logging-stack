@@ -1,0 +1,57 @@
+// config.alloy — Winston pushes logs to Alloy over HTTP, Alloy forwards them to Loki.
+//
+//   Winston  ->  [1] receive push  ->  [2] parse JSON  ->  [3] send to Loki
+
+// [1] Listen like Loki does. Winston (winston-loki) POSTs to http://<alloy>:3500/loki/api/v1/push
+//     The job / env labels come from the Winston transport.
+loki.source.api "app_logs" {
+  http {
+    listen_address = "0.0.0.0"
+    listen_port    = 3500
+  }
+  forward_to = [loki.process.app_logs.receiver]
+}
+
+// [2] Parse each Winston JSON line
+loki.process "app_logs" {
+  // Pull fields out of the JSON
+  stage.json {
+    expressions = {
+      level     = "level",
+      service   = "service || service_name",       // POC app: service, users-ms: service_name
+      timestamp = "timestamp || \"@timestamp\"",   // POC app: timestamp, users-ms: @timestamp
+      traceId   = "traceId",
+    }
+  }
+
+  // traceId is unique per request, so it must NOT be a label (that would explode the index).
+  // Structured metadata is stored next to the line and is filterable: {job="express-app"} | traceId="..."
+  stage.structured_metadata {
+    values = {
+      traceId = "",
+    }
+  }
+
+  // Turn level + service into Loki labels (keep labels few and low-cardinality)
+  stage.labels {
+    values = {
+      level   = "",
+      service = "",
+    }
+  }
+
+  // Use Winston's timestamp as the log time instead of "time Alloy read it"
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339"
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+// [3] Push to Loki
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

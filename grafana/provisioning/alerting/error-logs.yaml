@@ -1,0 +1,56 @@
+# Alert rule: email for every DIFFERENT error, but not again for the same error within 5 minutes.
+#
+#   every 1m:  count error lines per (service, error_message) over the last 5m  ->  fire if count > 0
+#
+# Each distinct error_message is its own alert, so:
+#   - a new error            -> email right away
+#   - same error again <5m   -> already firing, no new email
+#   - same error still happening after 5m -> one reminder (repeat_interval in policies.yaml)
+#   - error stops for 5m     -> alert closes; the next occurrence emails again
+#
+# error_message = the first one found of:
+#   error          (POC app exceptions, users-ms first stack line)
+#   message.error  (users-ms error logs)
+#   message + path (POC app 5xx without an exception, e.g. "request failed /payments")
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: error-logs
+    folder: POC
+    interval: 1m
+    rules:
+      - uid: error-logs
+        title: Error logs detected
+        condition: C
+        data:
+          # A: error lines per service + error message in the last 5 minutes
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum by (job, env, error_message) (count_over_time({job=~".+", level="error"} | json err="error", merr="message.error", msg="message", path="path" | label_format error_message=`{{ .err | default .merr | default (printf "%s %s" .msg .path) | trunc 150 }}` [5m]))'
+          # B: one number per error
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          # C: fire when that error happened at least once
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+        for: 0s                 # fire immediately
+        noDataState: OK         # no error lines = all good
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: '[{{ $labels.job }}] {{ $labels.error_message }}'
+          description: 'Happened {{ $values.B }} time(s) in the last 5 minutes. Search the dashboard for this text to see the full stack trace and traceId.'
+          dashboardUId: express-logs
+          panelId: '3'

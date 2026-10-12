@@ -1,0 +1,12 @@
+{
+  "name": "alert-mailer",
+  "version": "1.0.0",
+  "description": "Turns Grafana alert webhooks into incident emails with the matching Loki log lines",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "nodemailer": "^10.0.13"
+  }
+}

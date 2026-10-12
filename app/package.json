@@ -1,0 +1,14 @@
+{
+  "name": "express-loki-poc",
+  "version": "1.0.0",
+  "description": "Express + Winston app whose logs flow through Alloy into Loki and Grafana",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "winston": "^3.17.0",
+    "winston-loki": "^6.1.7"
+  }
+}

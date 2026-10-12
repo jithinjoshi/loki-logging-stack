@@ -1,0 +1,18 @@
+# Auto-adds Loki as a data source when Grafana starts — no clicking needed.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    jsonData:
+      # Makes the traceId in each log line a link that opens every log of that request
+      derivedFields:
+        - name: traceId
+          matcherRegex: '"traceId":"([\w-]+)"'
+          datasourceUid: loki
+          url: '{job=~".+"} | traceId="$${__value.raw}"'
+          urlDisplayLabel: 'All logs for this request'

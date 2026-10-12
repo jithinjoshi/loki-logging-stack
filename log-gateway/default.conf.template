@@ -1,0 +1,21 @@
+# log-gateway — the only way into Alloy. Rejects any push without the secret key.
+#   Authorization: Bearer <LOG_INGEST_KEY>
+# ${LOG_INGEST_KEY} is filled in from the environment when the container starts.
+
+server {
+  listen 3500;
+  client_max_body_size 10m;
+
+  location = /loki/api/v1/push {
+    if ($http_authorization != "Bearer ${LOG_INGEST_KEY}") {
+      return 401;
+    }
+    proxy_set_header Authorization "";   # Alloy doesn't need the key
+    proxy_pass http://alloy:3500;
+  }
+
+  # Nothing else is reachable through the gateway
+  location / {
+    return 404;
+  }
+}

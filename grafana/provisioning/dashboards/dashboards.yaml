@@ -1,0 +1,9 @@
+# Loads every dashboard JSON in this folder on startup.
+apiVersion: 1
+
+providers:
+  - name: poc-dashboards
+    folder: POC
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards

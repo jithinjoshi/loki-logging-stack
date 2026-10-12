@@ -1,0 +1,19 @@
+# Where alerts go: the alert-mailer service, which adds the matching log lines from Loki
+# and sends an incident-style email to ALERT_EMAILS (see alert-mailer/index.js).
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: email-team
+    receivers:
+      - uid: email-team-incident
+        type: webhook
+        settings:
+          url: http://alert-mailer:8080/alert
+          httpMethod: POST
+        disableResolveMessage: true   # only email when an error happens, not when it stops
+
+# Remove the old plain-email receiver (replaced by the webhook above)
+deleteContactPoints:
+  - orgId: 1
+    uid: email-team

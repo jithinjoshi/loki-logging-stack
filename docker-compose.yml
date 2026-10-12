@@ -1,0 +1,109 @@
+# Express (Winston) -> HTTP push -> Alloy -> Loki -> Grafana
+#
+#   docker compose up -d --build
+#
+#   App:     runs locally -> cd app && npm start   (http://localhost:3000)
+#   Grafana: http://localhost:3001   (admin / admin)
+#   Alloy:   http://localhost:12345  (pipeline UI)
+#   Loki:    http://localhost:3100/ready
+#   Mail:    http://localhost:8025   (Mailpit: alert emails land here)
+#   Logs in: http://localhost:3500   (log-gateway, needs Authorization: Bearer <LOG_INGEST_KEY> from .env)
+
+services:
+  # The only door into Alloy: checks the secret key, then forwards the push to Alloy
+  log-gateway:
+    image: nginx:1.27-alpine
+    container_name: poc-log-gateway
+    ports:
+      - "3500:3500"  # Winston pushes logs here (Loki push API + secret key)
+    environment:
+      - LOG_INGEST_KEY=${LOG_INGEST_KEY:?set LOG_INGEST_KEY in .env}
+      - NGINX_ENVSUBST_FILTER=^LOG_INGEST_KEY$$   # only fill in this variable, keep nginx's own $vars
+    volumes:
+      - ./log-gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      - alloy
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.9.1
+    container_name: poc-alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "127.0.0.1:12345:12345"  # UI, this machine only
+      # 3500 is NOT published: apps must go through log-gateway
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: poc-loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    ports:
+      - "127.0.0.1:3100:3100"  # this machine only, so nobody can push around the gateway
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    container_name: poc-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_ROOT_URL=${GRAFANA_URL:-http://localhost:3001}   # so links in alert emails open your Grafana
+      # Email for alerts. Defaults to the local Mailpit inbox; set SMTP_* in .env for real email (e.g. SendGrid)
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=${SMTP_HOST:-mailpit:1025}
+      - GF_SMTP_USER=${SMTP_USER:-}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - GF_SMTP_FROM_ADDRESS=${SMTP_FROM:-alerts@poc.local}
+      - GF_SMTP_FROM_NAME=Grafana Alerts
+      - ALERT_EMAILS=${ALERT_EMAILS:-team@poc.local}  # used by alerting/contact-points.yaml
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+      - mailpit
+    restart: unless-stopped
+
+  # Turns Grafana alerts into incident emails with the matching log lines (internal only, no port published)
+  alert-mailer:
+    build: ./alert-mailer
+    container_name: poc-alert-mailer
+    environment:
+      - LOKI_URL=http://loki:3100
+      - SMTP_HOST=${SMTP_HOST:-mailpit:1025}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-alerts@poc.local}
+      - ALERT_EMAILS=${ALERT_EMAILS:-team@poc.local}
+      - ALERT_TIMEZONE=Asia/Dubai     # "Started at" shown in GST (GMT+4)
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # Local test inbox: catches every email Grafana sends (nothing leaves your machine)
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: poc-mailpit
+    ports:
+      - "127.0.0.1:8025:8025"  # inbox UI: http://localhost:8025
+    restart: unless-stopped
+
+volumes:
+  alloy-data:
+  loki-data:
+  grafana-data:
